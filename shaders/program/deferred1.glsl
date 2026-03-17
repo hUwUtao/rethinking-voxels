@@ -153,6 +153,10 @@ float GetLinearDepth(float depth) {
     #include "/lib/atmospherics/clouds/mainClouds.glsl"
 #endif
 
+#ifdef STUDIOLIGHT_SUPPORT
+    #include "/lib/lighting/studiolight.glsl"
+#endif
+
 #ifdef PBR_REFLECTIONS
     #include "/lib/materials/materialMethods/reflections.glsl"
 #endif
@@ -489,6 +493,17 @@ void main() {
 
     #ifdef DARK_OUTLINE
         if (clouds.a < 0.5) DoDarkOutline(color, skyFade, z0, dither);
+    #endif
+
+    // ── StudioLight integration (dynamic studio lighting from mod) ────────────────
+    #ifdef STUDIOLIGHT_SUPPORT
+        if (sl_count > 0 && z0 < 1.0) {
+            // Extract albedo from current lighting and world normal
+            vec3 albedo = color / max(vec3(0.001), color);  // Estimate albedo
+            vec3 worldNormal = normalize(mat3(gbufferModelViewInverse) * normalM);
+            vec3 slContrib = sl_evaluate(playerPos, albedo, worldNormal);
+            color += slContrib;
+        }
     #endif
 
     /*RENDERTARGETS:0,5,4,8*/
