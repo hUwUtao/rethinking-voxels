@@ -13,8 +13,7 @@ struct SL_Light {
 };
 
 layout(std430, binding = 7) readonly buffer SL_LightData {
-    int      sl_count;
-    int      _sl_pad0, _sl_pad1, _sl_pad2;
+    ivec4    sl_header;   // x=count, y=abiVersion, z=flags, w=reserved
     SL_Light sl_lights[256];
 };
 
@@ -117,7 +116,8 @@ float sl_area_atten(vec3 fragPos, vec4 geo0, vec4 geo1,
 vec3 sl_evaluate(vec3 fragWorldPos, vec3 albedo, vec3 fragNormal) {
     vec3 result = vec3(0.0);
 
-    for (int i = 0; i < min(sl_count, 256); i++) {
+    if (sl_header.y != 1) return vec3(0.0);   // reject unknown ABI version
+    for (int i = 0; i < min(sl_header.x, 256); i++) {
         SL_Light L = sl_lights[i];
 
         vec3  lpos  = L.positionAndType.xyz;
