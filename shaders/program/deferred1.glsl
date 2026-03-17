@@ -153,7 +153,9 @@ float GetLinearDepth(float depth) {
     #include "/lib/atmospherics/clouds/mainClouds.glsl"
 #endif
 
-// [studiolight-abi-v1]
+// StudioLight support - define here so shader code is compiled
+#define STUDIOLIGHT_SUPPORT
+
 #ifdef STUDIOLIGHT_SUPPORT
     #include "/lib/lighting/studiolight.glsl"
 #endif
