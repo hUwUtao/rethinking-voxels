@@ -67,6 +67,8 @@ float Noise3D(vec3 p) {
 #endif
 
 #define GBUFFERS_TERRAIN
+#define STUDIOLIGHT_SUPPORT
+#include "/lib/lighting/studiolight.glsl"
     #include "/lib/lighting/mainLighting.glsl"
 #undef GBUFFERS_TERRAIN
 

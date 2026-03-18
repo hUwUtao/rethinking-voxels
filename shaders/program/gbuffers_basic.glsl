@@ -38,6 +38,8 @@ float shadowTime = shadowTimeVar2 * shadowTimeVar2;
 
 //Includes//
 #include "/lib/util/spaceConversion.glsl"
+#define STUDIOLIGHT_SUPPORT
+#include "/lib/lighting/studiolight.glsl"
 #include "/lib/lighting/mainLighting.glsl"
 
 #ifdef TAA

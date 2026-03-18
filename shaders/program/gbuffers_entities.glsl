@@ -64,6 +64,8 @@ float shadowTime = shadowTimeVar2 * shadowTimeVar2;
 //Includes//
 #include "/lib/util/dither.glsl"
 #include "/lib/util/spaceConversion.glsl"
+#define STUDIOLIGHT_SUPPORT
+#include "/lib/lighting/studiolight.glsl"
 #include "/lib/lighting/mainLighting.glsl"
 
 #if defined GENERATED_NORMALS || defined COATED_TEXTURES

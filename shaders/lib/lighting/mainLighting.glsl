@@ -1,3 +1,8 @@
+// ── StudioLight Shader Options ──────────────────────────────────────────────────
+#define STUDIOLIGHT_ENABLE 1 // [0 1] Enable StudioLight dynamic lighting
+#define STUDIOLIGHT_INTENSITY 1.0 // [0.0 2.0] Intensity multiplier for StudioLight
+#define STUDIOLIGHT_DEBUG 0 // [0 1 2 3 4] 0=Off, 1=Light Count, 2=Normals, 3=Both, 4=Raw Light
+
 vec3 fractCamPos = cameraPositionInt.y == -98257195 ? fract(cameraPosition) : cameraPositionFract;
 
 //Lighting Includes//
@@ -643,15 +648,114 @@ void DoLighting(inout vec4 color, inout vec3 shadowMult, vec3 playerPos, vec3 vi
         blocklightHighlight *= mix(vec3(1.0), pow2(color.rgb / infnorm(color.rgb + 0.0001)), metalness);
         if (!any(isnan(blocklightHighlight))) lightHighlight += blocklightHighlight;
     #endif
+    // ── StudioLight preparation (dynamic studio lighting from mod) ────────────────
+    #ifdef STUDIOLIGHT_SUPPORT
+        vec3 studioLight = vec3(0.0);
+        #ifndef STUDIOLIGHT_ENABLE
+            #define STUDIOLIGHT_ENABLE 1
+        #endif
+        #ifndef STUDIOLIGHT_INTENSITY
+            #define STUDIOLIGHT_INTENSITY 1.0
+        #endif
+        #ifndef STUDIOLIGHT_DEBUG
+            #define STUDIOLIGHT_DEBUG 0
+        #endif
+
+        #if STUDIOLIGHT_ENABLE == 1
+            int sl_lights = sl_count();
+            vec3 rawStudioLight = vec3(0.0);
+            #if STUDIOLIGHT_DEBUG == 4
+                vec3 sl_coverage = vec3(0.0);
+            #endif
+
+            if (sl_lights > 0) {
+                vec3 worldPos = playerPos + cameraPosition;
+                rawStudioLight = sl_evaluate(worldPos, color.rgb, worldNormalM);
+                studioLight = rawStudioLight * STUDIOLIGHT_INTENSITY;
+                #if STUDIOLIGHT_DEBUG == 4
+                    // Evaluate with white albedo to get pure coverage (no tinting)
+                    sl_coverage = sl_evaluate(worldPos, vec3(1.0), worldNormalM);
+                #endif
+            }
+
+            #if STUDIOLIGHT_DEBUG == 1
+                // Render sl_lightdata texture as a pixel grid in the top-left corner.
+                // Each screen pixel = one texel. Grid is 20×257 (tex size), scaled 3x.
+                // Shows raw RGBA bytes — lets you see exactly what the mod uploaded.
+                ivec2 fc = ivec2(gl_FragCoord.xy);
+                int scale = 3;
+                int gridW = 20 * scale;   // 60 px wide
+                int gridH = 32 * scale;   // show first 32 rows (header + 31 lights), 96 px tall
+                if (fc.x < gridW && fc.y < gridH) {
+                    int tx = fc.x / scale;
+                    int ty = fc.y / scale;
+                    studioLight = texelFetch(sl_lightdata, ivec2(tx, ty), 0).rgb;
+                }
+            #elif STUDIOLIGHT_DEBUG == 2
+                studioLight = worldNormalM * 0.5 + 0.5;
+            #elif STUDIOLIGHT_DEBUG == 3
+                studioLight = worldNormalM * 0.5 + 0.5;
+                if (gl_FragCoord.x < 50.0 && gl_FragCoord.y < 50.0)
+                    studioLight += vec3(float(sl_lights) / 256.0) * 0.3;
+            #endif
+        #endif
+    #else
+        vec3 studioLight = vec3(0.0);
+    #endif
+
     // Mix Colors
-    vec3 finalDiffuse = pow2(directionShade * vanillaAO) * (blockLighting + pow2(sceneLighting) + minLighting) + pow2(emission);
+    vec3 finalDiffuse = pow2(directionShade * vanillaAO) * (blockLighting + pow2(sceneLighting) + minLighting) + pow2(emission) + pow2(studioLight);
     finalDiffuse = sqrt(max(finalDiffuse, vec3(0.0))); // sqrt() for a bit more realistic light mix, max() to prevent NaNs
     if (any(isnan(finalDiffuse))) finalDiffuse = vec3(0.0);
     // Apply Lighting
     color.rgb *= finalDiffuse;
     color.rgb += lightHighlight;
+
     color.rgb *= pow2(1.0 - darknessLightFactor);
     #ifdef WHITE_WORLD
     color.rgb = finalDiffuse + lightHighlight;
+    #endif
+
+    // StudioLight debug mode 4: B&W coverage map + two debug panels
+    #if defined STUDIOLIGHT_SUPPORT && STUDIOLIGHT_ENABLE == 1 && STUDIOLIGHT_DEBUG == 4
+        float coverage = dot(sl_coverage, vec3(0.2126, 0.7152, 0.0722));
+        color.rgb = vec3(coverage);
+
+        ivec2 fc = ivec2(gl_FragCoord.xy);
+        int scale = 3;
+        int gridW = 20 * scale; // 60px
+
+        // Panel A (left): raw RGBA bytes from texture
+        if (fc.x < gridW && fc.y < 32 * scale) {
+            color.rgb = texelFetch(sl_lightdata, ivec2(fc.x / scale, fc.y / scale), 0).rgb;
+        }
+
+        // Panel B (right of A): decoded float visualisation per light row
+        // Each row = one light. Column layout per light (4px wide each):
+        //   col 0: x  (mapped -256..256 → 0..1)
+        //   col 1: y  (mapped 0..256 → 0..1)
+        //   col 2: z  (mapped -256..256 → 0..1)
+        //   col 3: type  (0=point,1=spot,2=area mapped to R/G/B)
+        int panelBx = gridW + 2;
+        int colW    = 4;
+        int panelBW = 4 * colW; // 16px wide
+        if (fc.x >= panelBx && fc.x < panelBx + panelBW && fc.y < 32 * scale) {
+            int lightRow = fc.y / scale;  // row 0 = header, 1+ = lights
+            int col      = (fc.x - panelBx) / colW;
+
+            vec4 posAndType = sl_fetchVec4(lightRow, 0);
+            float fx = posAndType.x;
+            float fy = posAndType.y;
+            float fz = posAndType.z;
+            float ft = posAndType.w;
+
+            if (col == 0) color.rgb = vec3(fx / 512.0 + 0.5); // x: grey centred at 0
+            if (col == 1) color.rgb = vec3(fy / 256.0);        // y: 0=black 256=white
+            if (col == 2) color.rgb = vec3(fz / 512.0 + 0.5); // z: grey centred at 0
+            if (col == 3) color.rgb = ft < 0.5 ? vec3(1,0,0)  // point = red
+                                    : ft < 1.5 ? vec3(0,1,0)  // spot  = green
+                                    : ft < 2.5 ? vec3(0,0,1)  // area  = blue
+                                    :            vec3(1,1,0);  // other = yellow
+        }
     #endif
 }

@@ -122,6 +122,8 @@ void DoOceanBlockTweaks(inout float smoothnessD) {
 
 //Includes//
 #include "/lib/util/spaceConversion.glsl"
+#define STUDIOLIGHT_SUPPORT
+#include "/lib/lighting/studiolight.glsl"
 #include "/lib/lighting/mainLighting.glsl"
 #include "/lib/util/dither.glsl"
 
