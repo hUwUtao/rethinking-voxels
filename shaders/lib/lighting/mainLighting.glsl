@@ -648,52 +648,14 @@ void DoLighting(inout vec4 color, inout vec3 shadowMult, vec3 playerPos, vec3 vi
         blocklightHighlight *= mix(vec3(1.0), pow2(color.rgb / infnorm(color.rgb + 0.0001)), metalness);
         if (!any(isnan(blocklightHighlight))) lightHighlight += blocklightHighlight;
     #endif
-    // ── StudioLight preparation (dynamic studio lighting from mod) ────────────────
-    #ifdef STUDIOLIGHT_SUPPORT
-        vec3 studioLight = vec3(0.0);
-        #ifndef STUDIOLIGHT_ENABLE
-            #define STUDIOLIGHT_ENABLE 1
-        #endif
-        #ifndef STUDIOLIGHT_INTENSITY
-            #define STUDIOLIGHT_INTENSITY 1.0
-        #endif
-        #ifndef STUDIOLIGHT_DEBUG
-            #define STUDIOLIGHT_DEBUG 0
-        #endif
-
-        #if STUDIOLIGHT_ENABLE == 1
-            int sl_lights = sl_count();
-            vec3 rawStudioLight = vec3(0.0);
-            #if STUDIOLIGHT_DEBUG == 4
-                vec3 sl_coverage = vec3(0.0);
-            #endif
-
-            if (sl_lights > 0) {
-                vec3 worldPos = playerPos + cameraPosition;
-                rawStudioLight = sl_evaluate(worldPos, color.rgb, worldNormalM, vxPos);
-                studioLight = rawStudioLight * STUDIOLIGHT_INTENSITY;
-                #if STUDIOLIGHT_DEBUG == 4
-                    // Evaluate with white albedo to get pure coverage (no tinting)
-                    sl_coverage = sl_evaluate(worldPos, vec3(1.0), worldNormalM, vxPos);
-                #endif
-            }
-
-            #if STUDIOLIGHT_DEBUG == 1
-                studioLight = vec3(clamp(float(sl_lights) / 64.0, 0.0, 1.0));
-            #elif STUDIOLIGHT_DEBUG == 2
-                studioLight = worldNormalM * 0.5 + 0.5;
-            #elif STUDIOLIGHT_DEBUG == 3
-                studioLight = worldNormalM * 0.5 + 0.5;
-                if (gl_FragCoord.x < 50.0 && gl_FragCoord.y < 50.0)
-                    studioLight += vec3(float(sl_lights) / 256.0) * 0.3;
-            #endif
-        #endif
-    #else
-        vec3 studioLight = vec3(0.0);
-    #endif
+    // ── StudioLight integration: now provided by voxel pipeline ──────────────────
+    // StudioLight sources are injected into the voxel occupancy/hash map by shadowcomp3.glsl
+    // and processed through the standard per-pixel blocklight pipeline (prepare4_csh.glsl).
+    // The contribution flows through blockLighting (which already accumulates in finalDiffuse).
+    vec3 studioLight = vec3(0.0);
 
     // Mix Colors
-    vec3 finalDiffuse = pow2(directionShade * vanillaAO) * (blockLighting + pow2(sceneLighting) + minLighting) + pow2(emission) + pow2(studioLight);
+    vec3 finalDiffuse = pow2(directionShade * vanillaAO) * (blockLighting + pow2(sceneLighting) + minLighting) + pow2(emission);
     finalDiffuse = sqrt(max(finalDiffuse, vec3(0.0))); // sqrt() for a bit more realistic light mix, max() to prevent NaNs
     if (any(isnan(finalDiffuse))) finalDiffuse = vec3(0.0);
     // Apply Lighting
@@ -703,21 +665,5 @@ void DoLighting(inout vec4 color, inout vec3 shadowMult, vec3 playerPos, vec3 vi
     color.rgb *= pow2(1.0 - darknessLightFactor);
     #ifdef WHITE_WORLD
     color.rgb = finalDiffuse + lightHighlight;
-    #endif
-
-    // StudioLight debug mode 4: B&W coverage map + two debug panels
-    #if defined STUDIOLIGHT_SUPPORT && STUDIOLIGHT_ENABLE == 1 && STUDIOLIGHT_DEBUG == 4
-        float coverage = dot(sl_coverage, vec3(0.2126, 0.7152, 0.0722));
-        color.rgb = vec3(coverage);
-
-        ivec2 fc = ivec2(gl_FragCoord.xy);
-        int metaScale = 12;
-        ivec2 metaSize = textureSize(sl_chunkmeta, 0);
-        ivec2 metaPanel = metaSize * metaScale;
-        if (fc.x < metaPanel.x && fc.y < metaPanel.y) {
-            ivec2 cell = fc / metaScale;
-            float chunkFill = clamp(float(sl_chunk_count(cell)) / 16.0, 0.0, 1.0);
-            color.rgb = vec3(chunkFill);
-        }
     #endif
 }
