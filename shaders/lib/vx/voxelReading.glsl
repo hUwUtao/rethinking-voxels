@@ -131,4 +131,3 @@ vec4 voxelTrace(vec3 start, vec3 dir, out vec3 normal, int hitMask) {
     }
     return vec4(-10000);
 }
-
