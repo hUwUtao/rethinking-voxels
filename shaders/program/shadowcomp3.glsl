@@ -9,6 +9,10 @@
 // ── Inject pass: Write current-frame StudioLight lights into occupancy and hash map ──
 #ifdef CSH_A
 
+// Dispatch size: covers up to 256x256 atlas with 16x16 slots per chunk
+// = 256*256*256 max lights / 64 threads per group = up to 256K work groups
+const ivec3 workGroups = ivec3(256, 64, 1);  // 16K total groups, safely covers most atlases
+
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(r32i) uniform restrict iimage3D occupancyVolume;
