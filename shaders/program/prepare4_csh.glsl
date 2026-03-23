@@ -372,7 +372,7 @@ void main() {
             if ((extraData[thisLightIndex] & (1 << 30)) != 0) {
                 // Find atlas entry: compute which chunk/cell the voxel is in, then search that cell
                 ivec3 voxelCoord = lightCoords[thisLightIndex].xyz;
-                vec3 worldPos = voxelCoord - 0.5 * vec3(voxelVolumeSize) + cameraPosition - fractCamPos;
+                vec3 worldPos = vec3(voxelCoord) + cameraPosition - fractCamPos;
                 ivec2 metaSize = textureSize(sl_chunkmeta, 0);
                 ivec2 cameraChunkXZ = ivec2(floor(cameraPosition.xz / 16.0));
                 ivec2 lightChunk = ivec2(floor(worldPos.xz / 16.0));
@@ -396,7 +396,7 @@ void main() {
                             float(lightChunk.y) * 16.0 + float(testRaw0.b) / 16.0
                         );
                         // Check if this atlas entry matches our voxel (within tolerance)
-                        if (distance(testWorldPos, worldPos) < 1.0) {
+                        if (distance(testWorldPos, worldPos) < 2.0) {
                             atlasCoord = testCoord;
                             foundAtlas = true;
                         }
@@ -412,10 +412,13 @@ void main() {
                 ivec4 raw3 = sl_texel255(sl_lightdata_3, atlasCoord);
                 ivec4 raw4 = sl_texel255(sl_lightdata_4, atlasCoord);
 
-                // Decode world position
+                // Decode world position from atlas data
                 int encY = raw0.g + (raw1.r << 8) + (raw1.g << 16);
-
-                vec3 lightWorldPos = worldPos; // Already computed during atlas search
+                vec3 lightWorldPos = vec3(
+                    float(lightChunk.x) * 16.0 + float(raw0.r) / 16.0,
+                    -64.0 + float(encY) / 1024.0,
+                    float(lightChunk.y) * 16.0 + float(raw0.b) / 16.0
+                );
 
                 vec3 lightVxPos = lightWorldPos - cameraPosition + fractCamPos;
                 vec3 toLight = lightVxPos - vxPos;
