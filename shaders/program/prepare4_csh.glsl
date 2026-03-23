@@ -537,6 +537,22 @@ void main() {
                         if (traceResult.w < 0.01) continue;
 
                         writeColor += lightColor * intensity * atten * traceResult.w;
+
+#if STUDIOLIGHT_DEBUG == 1
+                        // Debug: Light count visualization
+                        writeColor = vec3(float(slTraceCount) / float(SL_MAX_TRACES));
+#elif STUDIOLIGHT_DEBUG == 2
+                        // Debug: Light intensity visualization
+                        writeColor = vec3(intensity);
+#elif STUDIOLIGHT_DEBUG == 3
+                        // Debug: Attenuation factor visualization
+                        writeColor = vec3(atten);
+#elif STUDIOLIGHT_DEBUG == 4
+                        // Debug: Light type color coding
+                        if (lightType == 0) writeColor = vec3(1.0, 0.2, 0.2); // Point: red
+                        else if (lightType == 1) writeColor = vec3(0.2, 1.0, 0.2); // Spot: green
+                        else writeColor = vec3(0.2, 0.2, 1.0); // Area: blue
+#endif
                     }
                 }
             }
