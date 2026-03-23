@@ -39,15 +39,13 @@ ivec3 floorCamPosOffset =
 #ifdef BLOCKLIGHT_HIGHLIGHT
     #include "/lib/lighting/ggx.glsl"
 #endif
-#ifdef STUDIOLIGHT_SUPPORT
-    #include "/lib/lighting/studiolight.glsl"
-    // StudioLight shader options (define here since mainLighting.glsl not included)
-    #ifndef STUDIOLIGHT_ENABLE
-        #define STUDIOLIGHT_ENABLE 1
-    #endif
-    #ifndef STUDIOLIGHT_INTENSITY
-        #define STUDIOLIGHT_INTENSITY 1.0
-    #endif
+#include "/lib/lighting/studiolight.glsl"
+// StudioLight shader options (define here since mainLighting.glsl not included)
+#ifndef STUDIOLIGHT_ENABLE
+    #define STUDIOLIGHT_ENABLE 1
+#endif
+#ifndef STUDIOLIGHT_INTENSITY
+    #define STUDIOLIGHT_INTENSITY 1.0
 #endif
 
 #ifdef DO_PIXELATION_EFFECTS
@@ -369,10 +367,8 @@ void main() {
         for (; thisLightIndex < MAX_LIGHT_COUNT; thisLightIndex++) {
             if (thisLightIndex >= lightCount) break;
 
-#ifdef STUDIOLIGHT_SUPPORT
             // Skip SL voxels here — they're evaluated with proper geometry below
             if ((extraData[thisLightIndex] & (1 << 30)) != 0) continue;
-#endif
 
             float lightSize = 0.5;
             vec3 lightPos = lightPositions[thisLightIndex];
@@ -433,7 +429,6 @@ void main() {
             }
         }
 
-#ifdef STUDIOLIGHT_SUPPORT
         // ═══════════════════════════════════════════════════════════════════════════════════
         // StudioLight Direct Evaluation — proper geometry-aware per-pixel lighting
         // ═══════════════════════════════════════════════════════════════════════════════════
