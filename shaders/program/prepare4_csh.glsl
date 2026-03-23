@@ -525,6 +525,18 @@ void main() {
 
                         if (atten < 0.0001) continue;
 
+                        // Energy-unit scaling: normalize intensity by solid angle / surface area
+                        // so brightness is comparable across light types at the same wattage.
+                        float energyScale = 1.0;
+                        if (lightType == 1) { // Spot: wattage in a narrow cone = higher illuminance
+                            float coneAngle = sl_decodeConeAngle(raw2);
+                            energyScale = 2.0 / max(1.0 - cos(coneAngle), 0.0001);
+                        } else if (lightType == 2) { // Area: emittance scales with surface area
+                            float w = max(sl_decodeBlockScalar(raw2.g), 0.01);
+                            float h = max(sl_decodeBlockScalar(raw2.b), 0.01);
+                            energyScale = w * h;
+                        }
+
                         // Cone trace for visibility (occlusion by blocks)
                         float lightSize = 0.15;
                         vec4 traceResult = coneTrace(
@@ -536,7 +548,7 @@ void main() {
                         slTraceCount++;
                         if (traceResult.w < 0.01) continue;
 
-                        writeColor += lightColor * intensity * atten * traceResult.w;
+                        writeColor += lightColor * intensity * energyScale * atten * traceResult.w;
                     }
                 }
             }
