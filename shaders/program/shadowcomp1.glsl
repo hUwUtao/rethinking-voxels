@@ -73,6 +73,12 @@ layout(rgba16i) uniform iimage3D lightStorage;
 #include "/lib/vx/voxelReading.glsl"
 #include "/lib/util/random.glsl"
 #include "/lib/vx/positionHashing.glsl"
+#if STUDIOLIGHT_ENABLE == 1
+    #include "/lib/lighting/studiolight.glsl"
+    #ifndef STUDIOLIGHT_INTENSITY
+        #define STUDIOLIGHT_INTENSITY 1.0
+    #endif
+#endif
 
 #if MAX_TRACE_COUNT < 128
     #define MAX_LIGHT_COUNT 128
@@ -350,6 +356,88 @@ void main() {
             }
         }
     }
+
+#if STUDIOLIGHT_ENABLE == 1
+    // Inject StudioLight sources directly into the voxel irradiance cache so that
+    // GI bounces (CSH_B hitBlocklight), surface fallback (readSurfaceVoxelBlocklight),
+    // and colored light fog (readVolumetricBlocklight) all receive SL contributions.
+    if (insideFrustrum && activeFrame) {
+        vec3 fractCamPos = cameraPositionInt.y == -98257195
+                           ? fract(cameraPosition) : cameraPositionFract;
+        vec3 slWorldPos_query = vxPos + cameraPosition - fractCamPos;
+
+        ivec2 slMetaSize   = textureSize(sl_chunkmeta, 0);
+        ivec2 slCamChunk   = ivec2(floor(cameraPosition.xz / 16.0));
+        ivec2 slCenterCell = slMetaSize / 2;
+
+        for (int slCZ = 0; slCZ < slMetaSize.y; slCZ++) {
+            for (int slCX = 0; slCX < slMetaSize.x; slCX++) {
+                int slCount = sl_chunk_count(ivec2(slCX, slCZ));
+                if (slCount <= 0) continue;
+                ivec2 slLightChunk = slCamChunk + ivec2(slCX - slCenterCell.x, slCZ - slCenterCell.y);
+
+                for (int slSlot = 0; slSlot < slCount; slSlot++) {
+                    ivec2 slAtlas = ivec2(slCX, slCZ) * SL_CELL_SIZE
+                                  + ivec2(slSlot & 15, slSlot >> 4);
+                    ivec4 sl0 = sl_texel255(sl_lightdata_0, slAtlas);
+                    ivec4 sl1 = sl_texel255(sl_lightdata_1, slAtlas);
+                    ivec4 sl2 = sl_texel255(sl_lightdata_2, slAtlas);
+                    ivec4 sl4 = sl_texel255(sl_lightdata_4, slAtlas);
+
+                    int  slEncY = sl0.g + (sl1.r << 8) + (sl1.g << 16);
+                    vec3 slWP   = vec3(
+                        float(slLightChunk.x) * 16.0 + float(sl0.r) / 16.0,
+                        -64.0 + float(slEncY) / 1024.0,
+                        float(slLightChunk.y) * 16.0 + float(sl0.b) / 16.0
+                    );
+                    int   slType = sl0.a;
+                    float slDist = length(slWP - slWorldPos_query);
+
+                    float slRange;
+                    if (slType == 0) {
+                        slRange = sl_decodeBlockScalar(sl2.g);
+                    } else if (slType == 1) {
+                        slRange = sl_decodeBlockScalar(sl2.a);
+                    } else {
+                        float slW = sl_decodeBlockScalar(sl2.g);
+                        float slH = sl_decodeBlockScalar(sl2.b);
+                        slRange = sqrt(slW * slW + slH * slH) * 0.75;
+                    }
+                    slRange = max(slRange, 0.5);
+                    if (slDist > slRange * 1.05) continue;
+
+                    float slAtten = sl_windowed_atten(slDist, slRange);
+
+                    if (slType == 1) { // Spot: smooth cone mask
+                        vec3  slDir     = sl_decodeDirection(sl4);
+                        float slCone    = sl_decodeConeAngle(sl2);
+                        float cosTheta  = dot(-normalize(slWP - slWorldPos_query), slDir);
+                        float cosEdge   = cos(slCone);
+                        float softWidth = max(1.0 - cosEdge, 0.05);
+                        float t = clamp((cosTheta - cosEdge) / softWidth, 0.0, 1.0);
+                        slAtten *= t * t * (3.0 - 2.0 * t);
+                    }
+                    // Area / Point: omnidirectional for voxel cache (ndotL applied at read time)
+
+                    float slIntensity = sl_decodeIntensity(sl4) * STUDIOLIGHT_INTENSITY;
+                    vec3  slColor     = vec3(sl1.b, sl1.a, sl2.r) / 255.0;
+
+                    float slEScale = 1.0;
+                    if (slType == 1) {
+                        float slConeA = sl_decodeConeAngle(sl2);
+                        slEScale = 2.0 / max(1.0 - cos(slConeA), 0.0001);
+                    } else if (slType == 2) {
+                        float slW = max(sl_decodeBlockScalar(sl2.g), 0.01);
+                        float slH = max(sl_decodeBlockScalar(sl2.b), 0.01);
+                        slEScale = slW * slH;
+                    }
+
+                    writeColor += slColor * slIntensity * slEScale * slAtten;
+                }
+            }
+        }
+    }
+#endif
 
     if (anyInFrustrum) {
         imageStore(irradianceCacheI, coords + ivec3(0, voxelVolumeSize.y, 0), vec4(writeColor, 1));
