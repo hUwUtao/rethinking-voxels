@@ -85,6 +85,10 @@ vec2 view = vec2(viewWidth, viewHeight);
     #include "/lib/atmospherics/fog/coloredLightFog.glsl"
 #endif
 
+#if STUDIOLIGHT_ENABLE == 1 && defined COLORED_LIGHT_FOG
+    #include "/lib/atmospherics/fog/studioLightFog.glsl"
+#endif
+
 //Program//
 void main() {
     vec3 color = texelFetch(colortex0, texelCoord, 0).rgb;
@@ -175,6 +179,10 @@ void main() {
 
         #ifdef OVERWORLD
             lightFogMult *= 0.2 + 0.6 * mix(1.0, 1.0 - sunFactor * invRainFactor, eyeBrightnessM);
+        #endif
+
+        #if STUDIOLIGHT_ENABLE == 1
+            lightFog += GetStudioLightFog(nPlayerPos, translucentMult, lViewPos, lViewPos1, dither);
         #endif
     #endif
 
