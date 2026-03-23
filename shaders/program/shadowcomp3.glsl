@@ -120,14 +120,62 @@ void main() {
     // bit 30: SL flag
     int lightTypeBits = (lightType & 0x3) << 22;
     int newOccupancy = (1 << 16) | (lightLevel << 17) | lightTypeBits | (1 << 30);
-    imageAtomicOr(occupancyVolume, voxelCoord, newOccupancy);
 
-    // Write to global light hash map
-    uint hash = posToHash(voxelCoord - voxelVolumeSize / 2) % uint(1 << 18);
-    atomicExchange(globalLightHashMap[4 * hash + 0], packedPos0);
-    atomicExchange(globalLightHashMap[4 * hash + 1], packedPos1);
-    atomicExchange(globalLightHashMap[4 * hash + 2], packedCol0);
-    atomicExchange(globalLightHashMap[4 * hash + 3], packedCol1);
+    // Compute injection geometry — inject a shape-matched cluster so random-ray
+    // discovery (voxelTrace hitMask 1|1<<16) can reliably find SL lights
+    vec3 lightDir = sl_decodeDirection(raw4);
+    vec3 right = normalize(cross(lightDir, abs(lightDir.y) < 0.99 ? vec3(0,1,0) : vec3(1,0,0)));
+    vec3 up = cross(right, lightDir);
+
+    int injectRadius;
+    float planeHalfW = 0.0, planeHalfH = 0.0;
+    if (lightType == 1) { // Spot — disk perpendicular to direction
+        float srcRadius = float(raw3.r) / 255.0;
+        injectRadius = max(int(srcRadius * 16.0 + 0.5), 1);
+    } else if (lightType == 2) { // Area — plane of width × height
+        planeHalfW = sl_decodeBlockScalar(raw2.g) * 0.5;
+        planeHalfH = sl_decodeBlockScalar(raw2.b) * 0.5;
+        injectRadius = max(int(max(planeHalfW, planeHalfH) + 0.5), 1);
+    } else { // Point — small sphere bias
+        injectRadius = 1;
+    }
+
+    // Iterate bounding cube, filter by shape, write each voxel
+    for (int dz = -injectRadius; dz <= injectRadius; dz++) {
+        for (int dy = -injectRadius; dy <= injectRadius; dy++) {
+            for (int dx = -injectRadius; dx <= injectRadius; dx++) {
+                vec3 fOff = vec3(dx, dy, dz);
+
+                if (lightType == 0) {
+                    // Point: sphere
+                    if (length(fOff) > float(injectRadius) + 0.5) continue;
+                } else if (lightType == 1) {
+                    // Spot: thin disk perpendicular to lightDir
+                    float along = abs(dot(fOff, lightDir));
+                    float perp  = length(fOff - dot(fOff, lightDir) * lightDir);
+                    if (along > 0.7 || perp > float(injectRadius) + 0.5) continue;
+                } else {
+                    // Area: thin plane slab (width × height)
+                    float along = abs(dot(fOff, lightDir));
+                    float pu    = abs(dot(fOff, right));
+                    float pv    = abs(dot(fOff, up));
+                    if (along > 0.7 || pu > planeHalfW + 0.5 || pv > planeHalfH + 0.5) continue;
+                }
+
+                ivec3 writeCoord = voxelCoord + ivec3(dx, dy, dz);
+                if (any(lessThan(writeCoord, ivec3(0))) || any(greaterThanEqual(writeCoord, voxelVolumeSize)))
+                    continue;
+
+                imageAtomicOr(occupancyVolume, writeCoord, newOccupancy);
+
+                uint hash = posToHash(writeCoord - voxelVolumeSize / 2) % uint(1 << 18);
+                atomicExchange(globalLightHashMap[4 * hash + 0], packedPos0);
+                atomicExchange(globalLightHashMap[4 * hash + 1], packedPos1);
+                atomicExchange(globalLightHashMap[4 * hash + 2], packedCol0);
+                atomicExchange(globalLightHashMap[4 * hash + 3], packedCol1);
+            }
+        }
+    }
 }
 #endif
 
