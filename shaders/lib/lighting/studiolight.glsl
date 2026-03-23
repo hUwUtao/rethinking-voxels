@@ -127,6 +127,43 @@ float sl_area_atten(vec3 fragPos, vec4 geo0, vec4 geo1,
     return att * ndl * barnClip;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════════
+// Direct per-pixel evaluation helpers (called from prepare4_csh.glsl)
+// ═══════════════════════════════════════════════════════════════════════════════════
+
+float sl_decodeIntensity(ivec4 raw4) {
+    return float(raw4.r) / 255.0;
+}
+
+float sl_decodeConeAngle(ivec4 raw2) {
+    return max(float(raw2.g) / 255.0 * SL_HALF_PI, 0.01);
+}
+
+float sl_decodeInnerAngle(ivec4 raw3) {
+    return max(float(raw3.g) / 255.0 * SL_HALF_PI, 0.0);
+}
+
+float sl_decodeSharpness(ivec4 raw3) {
+    return float(raw3.a) / 255.0;
+}
+
+float sl_decodeShape(ivec4 raw3) {
+    return float(raw3.b);  // 0=circular cone, 1=pyramid cone
+}
+
+float sl_decodeSourceRadius_spot(ivec4 raw3) {
+    return float(raw3.r) / 255.0;
+}
+
+float sl_decodeSourceRadius_area(ivec4 raw2) {
+    return float(raw2.a) / 255.0;
+}
+
+vec4 sl_decodeBarnDoors(ivec4 raw3) {
+    // Returns vec4(barnTop, barnBottom, barnLeft, barnRight) angles in radians
+    return vec4(raw3.r, raw3.g, raw3.b, raw3.a) / 255.0 * SL_HALF_PI;
+}
+
 // StudioLight light evaluation is now handled by the Rethinking Voxels voxel pipeline.
 // Sources are injected into occupancyVolume and globalLightHashMap by shadowcomp3.glsl,
 // then processed through shadowcomp1.glsl (volumetric) and prepare4_csh.glsl (per-pixel)

@@ -60,6 +60,7 @@ void main() {
     ivec4 raw0 = sl_texel255(sl_lightdata_0, atlasCoord);
     ivec4 raw1 = sl_texel255(sl_lightdata_1, atlasCoord);
     ivec4 raw2 = sl_texel255(sl_lightdata_2, atlasCoord);
+    ivec4 raw3 = sl_texel255(sl_lightdata_3, atlasCoord);
     ivec4 raw4 = sl_texel255(sl_lightdata_4, atlasCoord);
 
     // Decode world position
@@ -73,8 +74,9 @@ void main() {
         float(lightChunk.y) * 16.0 + float(raw0.b) / 16.0
     );
 
-    // Decode color
-    vec3 lightColor = vec3(raw1.b, raw1.a, raw2.r) / 255.0;
+    // Decode color and intensity
+    float slIntensity = float(raw4.r) / 255.0;
+    vec3 lightColor = vec3(raw1.b, raw1.a, raw2.r) / 255.0 * slIntensity;
 
     // Compute voxel coordinate (matching DoLighting's voxel space transform)
     vec3 voxelPosFloat = worldPos - cameraPosition + cameraPositionFract + 0.5 * vec3(voxelVolumeSize);
@@ -112,7 +114,12 @@ void main() {
     uint packedCol1 = uint(lightColor.b * 32.0 + 0.5) | 0xffff0000u; // aggregated sentinel
 
     // Write to occupancy volume
-    int newOccupancy = (1 << 16) | (lightLevel << 17) | (1 << 30); // emissive | lightLevel | SL_flag
+    // bits 16: emissive flag
+    // bits 17-21: light level (0-31 range)
+    // bits 22-23: light type (0=point, 1=spot, 2=area)
+    // bit 30: SL flag
+    int lightTypeBits = (lightType & 0x3) << 22;
+    int newOccupancy = (1 << 16) | (lightLevel << 17) | lightTypeBits | (1 << 30);
     imageAtomicOr(occupancyVolume, voxelCoord, newOccupancy);
 
     // Write to global light hash map

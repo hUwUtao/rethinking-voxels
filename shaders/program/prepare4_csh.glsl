@@ -39,6 +39,9 @@ ivec3 floorCamPosOffset =
 #ifdef BLOCKLIGHT_HIGHLIGHT
     #include "/lib/lighting/ggx.glsl"
 #endif
+#ifdef STUDIOLIGHT_SUPPORT
+    #include "/lib/lighting/studiolight.glsl"
+#endif
 
 #ifdef DO_PIXELATION_EFFECTS
     #if PIXEL_SCALE == -2
@@ -358,6 +361,12 @@ void main() {
         uint thisLightIndex = 0;
         for (; thisLightIndex < MAX_LIGHT_COUNT; thisLightIndex++) {
             if (thisLightIndex >= lightCount) break;
+
+#ifdef STUDIOLIGHT_SUPPORT
+            // Skip SL voxels here — they're evaluated with proper geometry below
+            if ((extraData[thisLightIndex] & (1 << 30)) != 0) continue;
+#endif
+
             float lightSize = 0.5;
             vec3 lightPos = lightPositions[thisLightIndex];
             lightSize = clamp(lightSize, 0.01, getDistanceField(lightPos));
@@ -416,6 +425,116 @@ void main() {
                 if (traceNum >= MAX_TRACE_COUNT) break;
             }
         }
+
+#if defined STUDIOLIGHT_SUPPORT && STUDIOLIGHT_ENABLE == 1
+        // ═══════════════════════════════════════════════════════════════════════════════════
+        // StudioLight Direct Evaluation — proper geometry-aware per-pixel lighting
+        // ═══════════════════════════════════════════════════════════════════════════════════
+        {
+            ivec2 metaSize = textureSize(sl_chunkmeta, 0);
+            ivec2 centerCell = metaSize / 2;
+            ivec2 cameraChunkXZ = ivec2(floor(cameraPosition.xz / 16.0));
+            int slTraceCount = 0;
+            const int SL_MAX_TRACES = 8; // Cap cone trace calls for performance
+
+            for (int cz = 0; cz < metaSize.y && slTraceCount < SL_MAX_TRACES; cz++) {
+                for (int cx = 0; cx < metaSize.x && slTraceCount < SL_MAX_TRACES; cx++) {
+                    ivec2 cell = ivec2(cx, cz);
+                    int count = sl_chunk_count(cell);
+                    if (count <= 0) continue;
+
+                    ivec2 lightChunk = cameraChunkXZ + ivec2(cx - centerCell.x, cz - centerCell.y);
+
+                    for (int slot = 0; slot < count && slTraceCount < SL_MAX_TRACES; slot++) {
+                        ivec2 atlasCoord = cell * SL_CELL_SIZE + ivec2(slot & 15, slot >> 4);
+                        ivec4 raw0 = sl_texel255(sl_lightdata_0, atlasCoord);
+                        ivec4 raw1 = sl_texel255(sl_lightdata_1, atlasCoord);
+                        ivec4 raw2 = sl_texel255(sl_lightdata_2, atlasCoord);
+                        ivec4 raw3 = sl_texel255(sl_lightdata_3, atlasCoord);
+                        ivec4 raw4 = sl_texel255(sl_lightdata_4, atlasCoord);
+
+                        // Decode world position
+                        int encY = raw0.g + (raw1.r << 8) + (raw1.g << 16);
+                        vec3 lightWorldPos = vec3(
+                            float(lightChunk.x) * 16.0 + float(raw0.r) / 16.0,
+                            -64.0 + float(encY) / 1024.0,
+                            float(lightChunk.y) * 16.0 + float(raw0.b) / 16.0
+                        );
+
+                        // Convert to voxel-relative coordinates (same space as vxPos)
+                        vec3 lightVxPos = lightWorldPos - cameraPosition + fractCamPos;
+                        vec3 toLight = lightVxPos - vxPos;
+                        float dist = length(toLight);
+
+                        int lightType = raw0.a;
+                        float intensity = sl_decodeIntensity(raw4) * STUDIOLIGHT_INTENSITY;
+                        vec3 lightColor = vec3(raw1.b, raw1.a, raw2.r) / 255.0;
+
+                        // Type-specific range culling
+                        float maxRange;
+                        if (lightType == 0) {
+                            maxRange = sl_decodeBlockScalar(raw2.g);
+                        } else if (lightType == 1) {
+                            maxRange = sl_decodeBlockScalar(raw2.a);
+                        } else { // area
+                            float w = sl_decodeBlockScalar(raw2.g);
+                            float h = sl_decodeBlockScalar(raw2.b);
+                            maxRange = sqrt(w * w + h * h) * 0.75;
+                        }
+                        if (dist > maxRange * 1.05) continue;
+
+                        // Compute attenuation
+                        float atten = 0.0;
+                        float ndotl = max(0.0, dot(normalize(toLight), normalDepthData.xyz));
+                        if (ndotl < 0.001) continue;
+
+                        if (lightType == 0) { // Point light
+                            float radius = max(sl_decodeBlockScalar(raw2.g), 0.5);
+                            atten = sl_windowed_atten(dist, radius);
+                        } else if (lightType == 1) { // Spot light
+                            float coneAngle  = sl_decodeConeAngle(raw2);
+                            float innerAngle = sl_decodeInnerAngle(raw3);
+                            float range      = max(sl_decodeBlockScalar(raw2.a), 0.5);
+                            float srcRadius  = sl_decodeSourceRadius_spot(raw3);
+                            float sharpness  = sl_decodeSharpness(raw3);
+                            float shape      = sl_decodeShape(raw3);
+                            vec3  lightDir   = sl_decodeDirection(raw4);
+                            vec3  toFrag     = normalize(-toLight);
+                            float cosTheta   = dot(toFrag, lightDir);
+                            atten = sl_windowed_atten(dist, range) *
+                                    sl_spot_cone(cosTheta, coneAngle, innerAngle,
+                                                 srcRadius, dist, sharpness, shape,
+                                                 toFrag, lightDir);
+                        } else if (lightType == 2) { // Area light
+                            float w         = max(sl_decodeBlockScalar(raw2.g), 0.5);
+                            float h         = max(sl_decodeBlockScalar(raw2.b), 0.5);
+                            vec3  lightDir  = sl_decodeDirection(raw4);
+                            vec4  geo0      = vec4(w, h, 0.0, 0.0);
+                            vec4  geo1      = sl_decodeBarnDoors(raw3);
+                            vec3  fragWP    = vxPos - fractCamPos + cameraPosition;
+                            atten = sl_area_atten(fragWP, geo0, geo1, lightWorldPos, lightDir,
+                                                  normalDepthData.xyz);
+                        }
+
+                        if (atten < 0.0001) continue;
+
+                        // Cone trace for visibility (occlusion by blocks)
+                        float lightSize = 0.15;
+                        vec4 traceResult = coneTrace(
+                            biasedVxPos,
+                            lightVxPos - biasedVxPos,
+                            lightSize / max(dist, 0.1),
+                            dither
+                        );
+                        slTraceCount++;
+                        if (traceResult.w < 0.01) continue;
+
+                        writeColor += lightColor * intensity * atten * traceResult.w;
+                    }
+                }
+            }
+        }
+#endif
     }
     barrier();
     memoryBarrierShared();
