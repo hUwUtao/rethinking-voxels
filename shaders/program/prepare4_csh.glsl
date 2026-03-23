@@ -501,28 +501,17 @@ void main() {
                             float radius = max(sl_decodeBlockScalar(raw2.g), 0.5);
                             atten = sl_windowed_atten(dist, radius);
                         } else if (lightType == 1) { // Spot light
-                            float coneAngle  = sl_decodeConeAngle(raw2);
-                            float innerAngle = sl_decodeInnerAngle(raw3);
-                            float range      = max(sl_decodeBlockScalar(raw2.a), 0.5);
-                            float srcRadius  = sl_decodeSourceRadius_spot(raw3);
-                            float sharpness  = sl_decodeSharpness(raw3);
-                            float shape      = sl_decodeShape(raw3);
-                            vec3  lightDir   = sl_decodeDirection(raw4);
-                            vec3  toFrag     = normalize(-toLight);
-                            float cosTheta   = dot(toFrag, lightDir);
-                            atten = sl_windowed_atten(dist, range) *
-                                    sl_spot_cone(cosTheta, coneAngle, innerAngle,
-                                                 srcRadius, dist, sharpness, shape,
-                                                 toFrag, lightDir);
+                            // DEBUG: Treat spot as point for now
+                            float radius = max(sl_decodeBlockScalar(raw2.a), 0.5); // Use range as radius
+                            atten = sl_windowed_atten(dist, radius);
+                            // atten *= 0.5; // Mark as spot for visual debugging
                         } else if (lightType == 2) { // Area light
-                            float w         = max(sl_decodeBlockScalar(raw2.g), 0.5);
-                            float h         = max(sl_decodeBlockScalar(raw2.b), 0.5);
-                            vec3  lightDir  = sl_decodeDirection(raw4);
-                            vec4  geo0      = vec4(w, h, 0.0, 0.0);
-                            vec4  geo1      = sl_decodeBarnDoors(raw3);
-                            vec3  fragWP    = vxPos - fractCamPos + cameraPosition;
-                            atten = sl_area_atten(fragWP, geo0, geo1, lightWorldPos, lightDir,
-                                                  normalDepthData.xyz);
+                            // DEBUG: Treat area as point for now
+                            float w = max(sl_decodeBlockScalar(raw2.g), 0.5);
+                            float h = max(sl_decodeBlockScalar(raw2.b), 0.5);
+                            float radius = sqrt(w * w + h * h) * 0.75;
+                            atten = sl_windowed_atten(dist, radius);
+                            // atten *= 0.5; // Mark as area for visual debugging
                         }
 
                         if (atten < 0.0001) continue;
