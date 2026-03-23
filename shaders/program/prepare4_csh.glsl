@@ -368,6 +368,7 @@ void main() {
             if (thisLightIndex >= lightCount) break;
 
             // StudioLight voxel — evaluate with proper type-specific geometry
+            #if STUDIOLIGHT_ENABLE == 1
             if ((extraData[thisLightIndex] & (1 << 30)) != 0) {
                 // Recover atlas coords from hash map using the already-discovered voxel position
                 uint slHash = posToHash(lightCoords[thisLightIndex].xyz - voxelVolumeSize/2) % uint(1 << 18);
@@ -479,6 +480,7 @@ void main() {
                 }
                 continue;
             }
+            #endif
 
             float lightSize = 0.5;
             vec3 lightPos = lightPositions[thisLightIndex];
