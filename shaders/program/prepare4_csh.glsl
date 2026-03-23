@@ -439,6 +439,12 @@ void main() {
         // ═══════════════════════════════════════════════════════════════════════════════════
         {
             ivec2 metaSize = textureSize(sl_chunkmeta, 0);
+
+            // DIAGNOSTIC: If metaSize is 0, atlas isn't loaded
+            if (metaSize.x <= 0 || metaSize.y <= 0) {
+                writeColor = vec3(1.0, 0.0, 0.0); // Red = atlas missing
+            } else {
+            int foundLights = 0;
             ivec2 centerCell = metaSize / 2;
             ivec2 cameraChunkXZ = ivec2(floor(cameraPosition.xz / 16.0));
             int slTraceCount = 0;
@@ -449,6 +455,7 @@ void main() {
                     ivec2 cell = ivec2(cx, cz);
                     int count = sl_chunk_count(cell);
                     if (count <= 0) continue;
+                    foundLights += count; // DIAGNOSTIC: count total lights found
 
                     ivec2 lightChunk = cameraChunkXZ + ivec2(cx - centerCell.x, cz - centerCell.y);
 
@@ -540,6 +547,15 @@ void main() {
                     }
                 }
             }
+
+            // DIAGNOSTIC OUTPUT
+            if (foundLights <= 0) {
+                writeColor = vec3(0.0, 1.0, 0.0); // Green = atlas loaded, no lights
+            } else if (slTraceCount <= 0) {
+                writeColor = vec3(1.0, 1.0, 0.0); // Yellow = lights found but none in range
+            }
+            // else: normal evaluation (lights were processed above)
+            } // End atlas size check
         }
 #endif
     }
