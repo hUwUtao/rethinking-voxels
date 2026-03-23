@@ -439,7 +439,6 @@ void main() {
             if (metaSize.x <= 0 || metaSize.y <= 0) {
                 writeColor = vec3(1.0, 0.0, 0.0); // Red = atlas missing
             } else {
-            int foundLights = 0;
             ivec2 centerCell = metaSize / 2;
             ivec2 cameraChunkXZ = ivec2(floor(cameraPosition.xz / 16.0));
             int slTraceCount = 0;
@@ -450,7 +449,6 @@ void main() {
                     ivec2 cell = ivec2(cx, cz);
                     int count = sl_chunk_count(cell);
                     if (count <= 0) continue;
-                    foundLights += count; // DIAGNOSTIC: count total lights found
 
                     ivec2 lightChunk = cameraChunkXZ + ivec2(cx - centerCell.x, cz - centerCell.y);
 
@@ -479,18 +477,18 @@ void main() {
                         float intensity = sl_decodeIntensity(raw4) * STUDIOLIGHT_INTENSITY;
                         vec3 lightColor = vec3(raw1.b, raw1.a, raw2.r) / 255.0;
 
-                        // Type-specific range culling (DISABLED FOR DEBUG)
-                        // float maxRange;
-                        // if (lightType == 0) {
-                        //     maxRange = sl_decodeBlockScalar(raw2.g);
-                        // } else if (lightType == 1) {
-                        //     maxRange = sl_decodeBlockScalar(raw2.a);
-                        // } else { // area
-                        //     float w = sl_decodeBlockScalar(raw2.g);
-                        //     float h = sl_decodeBlockScalar(raw2.b);
-                        //     maxRange = sqrt(w * w + h * h) * 0.75;
-                        // }
-                        // if (dist > maxRange * 1.05) continue;
+                        // Type-specific range culling
+                        float maxRange;
+                        if (lightType == 0) {
+                            maxRange = sl_decodeBlockScalar(raw2.g);
+                        } else if (lightType == 1) {
+                            maxRange = sl_decodeBlockScalar(raw2.a);
+                        } else { // area
+                            float w = sl_decodeBlockScalar(raw2.g);
+                            float h = sl_decodeBlockScalar(raw2.b);
+                            maxRange = sqrt(w * w + h * h) * 0.75;
+                        }
+                        if (dist > maxRange * 1.05) continue;
 
                         // Compute attenuation
                         float atten = 0.0;
@@ -501,17 +499,28 @@ void main() {
                             float radius = max(sl_decodeBlockScalar(raw2.g), 0.5);
                             atten = sl_windowed_atten(dist, radius);
                         } else if (lightType == 1) { // Spot light
-                            // DEBUG: Treat spot as point for now
-                            float radius = max(sl_decodeBlockScalar(raw2.a), 0.5); // Use range as radius
-                            atten = sl_windowed_atten(dist, radius);
-                            // atten *= 0.5; // Mark as spot for visual debugging
+                            float coneAngle  = sl_decodeConeAngle(raw2);
+                            float innerAngle = sl_decodeInnerAngle(raw3);
+                            float range      = max(sl_decodeBlockScalar(raw2.a), 0.5);
+                            float srcRadius  = sl_decodeSourceRadius_spot(raw3);
+                            float sharpness  = sl_decodeSharpness(raw3);
+                            float shape      = sl_decodeShape(raw3);
+                            vec3  lightDir   = sl_decodeDirection(raw4);
+                            vec3  toFrag     = normalize(-toLight);
+                            float cosTheta   = dot(toFrag, lightDir);
+                            atten = sl_windowed_atten(dist, range) *
+                                    sl_spot_cone(cosTheta, coneAngle, innerAngle,
+                                                 srcRadius, dist, sharpness, shape,
+                                                 toFrag, lightDir);
                         } else if (lightType == 2) { // Area light
-                            // DEBUG: Treat area as point for now
-                            float w = max(sl_decodeBlockScalar(raw2.g), 0.5);
-                            float h = max(sl_decodeBlockScalar(raw2.b), 0.5);
-                            float radius = sqrt(w * w + h * h) * 0.75;
-                            atten = sl_windowed_atten(dist, radius);
-                            // atten *= 0.5; // Mark as area for visual debugging
+                            float w         = max(sl_decodeBlockScalar(raw2.g), 0.5);
+                            float h         = max(sl_decodeBlockScalar(raw2.b), 0.5);
+                            vec3  lightDir  = sl_decodeDirection(raw4);
+                            vec4  geo0      = vec4(w, h, 0.0, 0.0);
+                            vec4  geo1      = sl_decodeBarnDoors(raw3);
+                            vec3  fragWP    = vxPos - fractCamPos + cameraPosition;
+                            atten = sl_area_atten(fragWP, geo0, geo1, lightWorldPos, lightDir,
+                                                  normalDepthData.xyz);
                         }
 
                         if (atten < 0.0001) continue;
@@ -531,14 +540,6 @@ void main() {
                     }
                 }
             }
-
-            // DIAGNOSTIC OUTPUT
-            if (foundLights <= 0) {
-                writeColor = vec3(0.0, 1.0, 0.0); // Green = atlas loaded, no lights
-            } else if (slTraceCount <= 0) {
-                writeColor = vec3(1.0, 1.0, 0.0); // Yellow = lights found but none in range
-            }
-            // else: normal evaluation (lights were processed above)
             } // End atlas size check
         }
 #endif
