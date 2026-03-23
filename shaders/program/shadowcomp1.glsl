@@ -78,6 +78,9 @@ layout(rgba16i) uniform iimage3D lightStorage;
     #ifndef STUDIOLIGHT_INTENSITY
         #define STUDIOLIGHT_INTENSITY 1.0
     #endif
+    #ifndef STUDIOLIGHT_GI_MULT
+        #define STUDIOLIGHT_GI_MULT 4.0 // [1.0 2.0 4.0 8.0 16.0] StudioLight GI bounce brightness
+    #endif
 #endif
 
 #if MAX_TRACE_COUNT < 128
@@ -432,7 +435,7 @@ void main() {
                         slEScale = slW * slH;
                     }
 
-                    writeColor += slColor * slIntensity * slEScale * slAtten;
+                    writeColor += slColor * slIntensity * slEScale * slAtten * STUDIOLIGHT_GI_MULT;
                 }
             }
         }
