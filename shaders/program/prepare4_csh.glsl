@@ -370,10 +370,40 @@ void main() {
             // StudioLight voxel — evaluate with proper type-specific geometry
             #if STUDIOLIGHT_ENABLE == 1
             if ((extraData[thisLightIndex] & (1 << 30)) != 0) {
-                // Recover atlas coords from hash map using the already-discovered voxel position
-                uint slHash = posToHash(lightCoords[thisLightIndex].xyz - voxelVolumeSize/2) % uint(1 << 18);
-                uvec2 slPackedCol = uvec2(globalLightHashMap[4*slHash+2], globalLightHashMap[4*slHash+3]);
-                ivec2 atlasCoord = ivec2(slPackedCol.x & 0xFFFF, slPackedCol.x >> 16);
+                // Find atlas entry: compute which chunk/cell the voxel is in, then search that cell
+                ivec3 voxelCoord = lightCoords[thisLightIndex].xyz;
+                vec3 worldPos = voxelCoord - 0.5 * vec3(voxelVolumeSize) + cameraPosition - fractCamPos;
+                ivec2 metaSize = textureSize(sl_chunkmeta, 0);
+                ivec2 cameraChunkXZ = ivec2(floor(cameraPosition.xz / 16.0));
+                ivec2 lightChunk = ivec2(floor(worldPos.xz / 16.0));
+                ivec2 cell = lightChunk - cameraChunkXZ + metaSize / 2;
+
+                // Search the atlas cell for a light at this voxel position
+                bool foundAtlas = false;
+                ivec2 atlasCoord = ivec2(0);
+                if (cell.x >= 0 && cell.x < metaSize.x && cell.y >= 0 && cell.y < metaSize.y) {
+                    int cellCount = sl_chunk_count(cell);
+                    for (int slot = 0; slot < cellCount && !foundAtlas; slot++) {
+                        ivec2 testCoord = cell * SL_CELL_SIZE + ivec2(slot & 15, slot >> 4);
+                        ivec4 testRaw0 = sl_texel255(sl_lightdata_0, testCoord);
+                        ivec4 testRaw1 = sl_texel255(sl_lightdata_1, testCoord);
+
+                        // Decode test position to see if it matches
+                        int testEncY = testRaw0.g + (testRaw1.r << 8) + (testRaw1.g << 16);
+                        vec3 testWorldPos = vec3(
+                            float(lightChunk.x) * 16.0 + float(testRaw0.r) / 16.0,
+                            -64.0 + float(testEncY) / 1024.0,
+                            float(lightChunk.y) * 16.0 + float(testRaw0.b) / 16.0
+                        );
+                        // Check if this atlas entry matches our voxel (within tolerance)
+                        if (distance(testWorldPos, worldPos) < 1.0) {
+                            atlasCoord = testCoord;
+                            foundAtlas = true;
+                        }
+                    }
+                }
+
+                if (!foundAtlas) continue; // Atlas entry not found, skip this light
 
                 // Sample all 5 raw payloads from atlas
                 ivec4 raw0 = sl_texel255(sl_lightdata_0, atlasCoord);
@@ -382,20 +412,10 @@ void main() {
                 ivec4 raw3 = sl_texel255(sl_lightdata_3, atlasCoord);
                 ivec4 raw4 = sl_texel255(sl_lightdata_4, atlasCoord);
 
-                // Decode world position and convert to voxel-relative coordinates
+                // Decode world position
                 int encY = raw0.g + (raw1.r << 8) + (raw1.g << 16);
-                ivec2 metaSize = textureSize(sl_chunkmeta, 0);
-                ivec2 cameraChunkXZ = ivec2(floor(cameraPosition.xz / 16.0));
 
-                // Compute lightChunk from atlasCoord (reverse of shadowcomp3.glsl)
-                ivec2 cell = atlasCoord / SL_CELL_SIZE;
-                ivec2 lightChunk = cameraChunkXZ + (cell - metaSize / 2);
-
-                vec3 lightWorldPos = vec3(
-                    float(lightChunk.x) * 16.0 + float(raw0.r) / 16.0,
-                    -64.0 + float(encY) / 1024.0,
-                    float(lightChunk.y) * 16.0 + float(raw0.b) / 16.0
-                );
+                vec3 lightWorldPos = worldPos; // Already computed during atlas search
 
                 vec3 lightVxPos = lightWorldPos - cameraPosition + fractCamPos;
                 vec3 toLight = lightVxPos - vxPos;
