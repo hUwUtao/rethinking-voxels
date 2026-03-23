@@ -110,8 +110,9 @@ void main() {
 
     uint packedPos0 = subPosX_32 | (subPosY_32 << 16);
     uint packedPos1 = subPosZ_32 | (1u << 16); // count = 1
-    uint packedCol0 = uint(lightColor.r * 32.0 + 0.5) | (uint(lightColor.g * 32.0 + 0.5) << 16);
-    uint packedCol1 = uint(lightColor.b * 32.0 + 0.5) | 0xffff0000u; // aggregated sentinel
+    // Store atlas coord in color fields (weight uses magnitude of these, which is fine)
+    uint packedCol0 = uint(atlasCoord.x) | (uint(atlasCoord.y) << 16);
+    uint packedCol1 = uint(lightColor.b * 32.0 + 0.5); // blue for non-zero weight magnitude
 
     // Write to occupancy volume
     // bits 16: emissive flag
