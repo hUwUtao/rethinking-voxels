@@ -41,6 +41,13 @@ ivec3 floorCamPosOffset =
 #endif
 #ifdef STUDIOLIGHT_SUPPORT
     #include "/lib/lighting/studiolight.glsl"
+    // StudioLight shader options (define here since mainLighting.glsl not included)
+    #ifndef STUDIOLIGHT_ENABLE
+        #define STUDIOLIGHT_ENABLE 1
+    #endif
+    #ifndef STUDIOLIGHT_INTENSITY
+        #define STUDIOLIGHT_INTENSITY 1.0
+    #endif
 #endif
 
 #ifdef DO_PIXELATION_EFFECTS
@@ -426,7 +433,7 @@ void main() {
             }
         }
 
-#if defined STUDIOLIGHT_SUPPORT && STUDIOLIGHT_ENABLE == 1
+#ifdef STUDIOLIGHT_SUPPORT
         // ═══════════════════════════════════════════════════════════════════════════════════
         // StudioLight Direct Evaluation — proper geometry-aware per-pixel lighting
         // ═══════════════════════════════════════════════════════════════════════════════════
