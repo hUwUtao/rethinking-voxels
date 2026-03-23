@@ -479,18 +479,18 @@ void main() {
                         float intensity = sl_decodeIntensity(raw4) * STUDIOLIGHT_INTENSITY;
                         vec3 lightColor = vec3(raw1.b, raw1.a, raw2.r) / 255.0;
 
-                        // Type-specific range culling
-                        float maxRange;
-                        if (lightType == 0) {
-                            maxRange = sl_decodeBlockScalar(raw2.g);
-                        } else if (lightType == 1) {
-                            maxRange = sl_decodeBlockScalar(raw2.a);
-                        } else { // area
-                            float w = sl_decodeBlockScalar(raw2.g);
-                            float h = sl_decodeBlockScalar(raw2.b);
-                            maxRange = sqrt(w * w + h * h) * 0.75;
-                        }
-                        if (dist > maxRange * 1.05) continue;
+                        // Type-specific range culling (DISABLED FOR DEBUG)
+                        // float maxRange;
+                        // if (lightType == 0) {
+                        //     maxRange = sl_decodeBlockScalar(raw2.g);
+                        // } else if (lightType == 1) {
+                        //     maxRange = sl_decodeBlockScalar(raw2.a);
+                        // } else { // area
+                        //     float w = sl_decodeBlockScalar(raw2.g);
+                        //     float h = sl_decodeBlockScalar(raw2.b);
+                        //     maxRange = sqrt(w * w + h * h) * 0.75;
+                        // }
+                        // if (dist > maxRange * 1.05) continue;
 
                         // Compute attenuation
                         float atten = 0.0;
